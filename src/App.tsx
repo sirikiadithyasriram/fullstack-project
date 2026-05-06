@@ -4,32 +4,20 @@ import {
   Search, 
   MapPin, 
   GraduationCap, 
-  IndianRupee, 
   Star, 
   Heart, 
   ArrowLeftRight, 
   X, 
-  Filter,
   ChevronRight,
   Globe,
   Mail,
   Phone,
-  Bookmark,
   ExternalLink,
   ShieldCheck,
   Sparkles
 } from 'lucide-react';
 import { COLLEGES } from './data/colleges';
 import { College } from './types';
-import { 
-  auth, 
-  logout, 
-  saveBookmark, 
-  removeBookmark, 
-  getUserBookmarks,
-  signInWithGoogle 
-} from './lib/firebase';
-import { onAuthStateChanged, User } from 'firebase/auth';
 
 // --- Utils ---
 const cn = (...classes: (string | boolean | undefined)[]) => classes.filter(Boolean).join(' ');
@@ -48,8 +36,6 @@ const Navbar = ({
   setSelectedCourses,
   setViewMode,
   viewMode,
-  user,
-  onLogin,
 }: { 
   onHome: () => void;
   bookmarksCount: number; 
@@ -62,14 +48,12 @@ const Navbar = ({
   setSelectedCourses: React.Dispatch<React.SetStateAction<string[]>>;
   setViewMode: (mode: 'discovery' | 'bookmarks' | 'compare' | 'predictor' | 'exams') => void;
   viewMode: 'discovery' | 'bookmarks' | 'compare' | 'predictor' | 'exams';
-  user: User | null;
-  onLogin: () => void;
 }) => {
 
   return (
     <div className="flex flex-col w-full">
       {/* Tier 2: Brand Bar */}
-      <nav className="bg-white px-6 h-20 flex items-center border-b border-slate-100">
+      <nav className="bg-white px-6 h-20 flex items-center border-b border-slate-100 shadow-sm sticky top-0 z-50">
         <div className="max-w-7xl mx-auto w-full flex items-center justify-between gap-12">
           <div className="flex items-center gap-3 cursor-pointer group" onClick={onHome}>
             <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center font-black text-xl text-white shadow-lg shadow-indigo-200 group-hover:scale-105 transition-transform">
@@ -114,30 +98,6 @@ const Navbar = ({
                 </span>
               )}
             </button>
-            {!user ? (
-              <div className="flex items-center gap-6">
-                <button 
-                  onClick={onLogin}
-                  className="text-sm font-bold text-slate-900 hover:text-indigo-600 transition-colors"
-                >
-                  Login
-                </button>
-                <button 
-                  onClick={onLogin}
-                  className="px-6 py-2.5 bg-indigo-600 text-white text-sm font-bold rounded-lg shadow-md shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-95"
-                >
-                  Get Started
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-4">
-                <div className="flex flex-col items-end mr-2">
-                  <span className="text-xs font-bold text-slate-900">{user.displayName}</span>
-                  <button onClick={logout} className="text-[10px] font-bold text-slate-400 hover:text-indigo-600">Sign Out</button>
-                </div>
-                <img src={user.photoURL || ''} alt="avatar" className="w-10 h-10 rounded-full border-2 border-indigo-100 shadow-sm" />
-              </div>
-            )}
           </div>
         </div>
       </nav>
@@ -198,6 +158,7 @@ const Navbar = ({
           })}
         </div>
       </div>
+
     </div>
   );
 };
@@ -641,51 +602,26 @@ const CompareView = ({ colleges, onClose, onRemove }: { colleges: College[], onC
   </motion.div>
 );
 
-// --- Main App ---
-
 export default function App() {
-  const [user, setUser] = useState<User | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCourses, setSelectedCourses] = useState<string[]>([]);
   const [selectedType, setSelectedType] = useState<string[]>([]);
   const [maxFee, setMaxFee] = useState(2500000);
   
-  const [bookmarks, setBookmarks] = useState<string[]>([]);
+  const [bookmarks, setBookmarks] = useState<string[]>(() => {
+    const saved = localStorage.getItem('uni-quest-bookmarks');
+    return saved ? JSON.parse(saved) : [];
+  });
   const [compareList, setCompareList] = useState<string[]>([]);
   const [selectedCollege, setSelectedCollege] = useState<College | null>(null);
   const [viewMode, setViewMode] = useState<'discovery' | 'bookmarks' | 'compare' | 'predictor' | 'exams'>('discovery');
   const [userRank, setUserRank] = useState<string>('');
   const [selectedExam, setSelectedExam] = useState<string | null>(null);
-  const [isAuthLoading, setIsAuthLoading] = useState(true);
-  const [authError, setAuthError] = useState<string | null>(null);
 
-  // Sync Auth State
+  // Sync Bookmarks with LocalStorage
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      setUser(firebaseUser);
-      setIsAuthLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  const handleLogin = async () => {
-    try {
-      setAuthError(null);
-      await signInWithGoogle();
-    } catch (error: any) {
-      setAuthError(error.message || 'Failed to login. Please check your browser settings and try again.');
-      console.error('Login Error:', error);
-    }
-  };
-
-  // Sync Bookmarks with Firestore
-  useEffect(() => {
-    if (user) {
-      getUserBookmarks(user.uid).then(ids => setBookmarks(ids));
-    } else {
-      setBookmarks([]);
-    }
-  }, [user]);
+    localStorage.setItem('uni-quest-bookmarks', JSON.stringify(bookmarks));
+  }, [bookmarks]);
 
   // Filter Logic
   const filteredColleges = useMemo(() => {
@@ -726,45 +662,13 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const toggleBookmark = async (id: string) => {
-    if (!user) {
-      await handleLogin();
-      return;
-    }
-
-    const isBookmarked = bookmarks.includes(id);
-    
-    // Update Local State
-    setBookmarks(prev => isBookmarked ? prev.filter(i => i !== id) : [...prev, id]);
-
-    // Sync with Firestore
-    try {
-      if (isBookmarked) {
-        await removeBookmark(user.uid, id);
-      } else {
-        await saveBookmark(user.uid, id);
-      }
-    } catch (error) {
-      // Revert local state on error
-      setBookmarks(prev => isBookmarked ? [...prev, id] : prev.filter(i => i !== id));
-      console.error('Failed to sync bookmark:', error);
-    }
+  const toggleBookmark = (id: string) => {
+    setBookmarks(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
   };
 
   const toggleCompare = (id: string) => {
     setCompareList(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
   };
-
-  if (isAuthLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-          <p className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">Initializing...</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-[#FDFDFD] font-sans text-gray-900 selection:bg-indigo-100 selection:text-indigo-900">
@@ -780,25 +684,8 @@ export default function App() {
         setSelectedCourses={setSelectedCourses}
         setViewMode={setViewMode}
         viewMode={viewMode}
-        user={user}
-        onLogin={handleLogin}
       />
       
-      <AnimatePresence>
-        {authError && (
-          <motion.div 
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="fixed top-24 left-1/2 -translate-x-1/2 z-50 bg-red-50 border border-red-200 text-red-600 px-6 py-3 rounded-xl shadow-xl flex items-center gap-3 font-bold text-sm"
-          >
-            <ShieldCheck className="w-5 h-5 text-red-400" />
-            {authError}
-            <button onClick={() => setAuthError(null)} className="ml-4 hover:text-red-800"><X className="w-4 h-4" /></button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       <main className="max-w-7xl mx-auto px-6 py-12">
         {/* Discovery Hero Section */}
         {viewMode === 'discovery' && !searchQuery && selectedCourses.length === 0 && (
@@ -809,6 +696,7 @@ export default function App() {
                 src="https://images.unsplash.com/photo-1541339907198-e08756ebafe3?auto=format&fit=crop&q=80&w=2000" 
                 alt="Campus Background" 
                 className="w-full h-full object-cover opacity-40 mix-blend-overlay"
+                referrerPolicy="no-referrer"
               />
               <div className="absolute inset-0 bg-gradient-to-b from-slate-950/80 via-slate-950/60 to-slate-950/90"></div>
             </div>
@@ -846,6 +734,7 @@ export default function App() {
                     type="text" 
                     placeholder="Search colleges..." 
                     className="flex-1 bg-transparent border-none focus:outline-none text-slate-900 font-bold placeholder:text-slate-400"
+                    value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                   />
                   <button className="bg-indigo-600 hover:bg-indigo-700 text-white px-10 py-3 rounded-lg font-black uppercase text-sm tracking-widest transition-all shadow-lg shadow-indigo-500/20 active:scale-95">
@@ -1019,6 +908,7 @@ export default function App() {
             </div>
           </section>
         )}
+
 
         <div className="flex gap-12 relative">
           {/* Filters Sidebar */}
