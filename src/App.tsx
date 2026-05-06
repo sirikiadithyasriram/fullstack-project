@@ -29,6 +29,7 @@ import {
   getUserBookmarks,
   signInWithGoogle 
 } from './lib/firebase';
+import { onAuthStateChanged, User } from 'firebase/auth';
 
 // --- Utils ---
 const cn = (...classes: (string | boolean | undefined)[]) => classes.filter(Boolean).join(' ');
@@ -46,7 +47,9 @@ const Navbar = ({
   selectedCourses,
   setSelectedCourses,
   setViewMode,
-  viewMode
+  viewMode,
+  user,
+  onLogin,
 }: { 
   onHome: () => void;
   bookmarksCount: number; 
@@ -59,8 +62,9 @@ const Navbar = ({
   setSelectedCourses: React.Dispatch<React.SetStateAction<string[]>>;
   setViewMode: (mode: 'discovery' | 'bookmarks' | 'compare' | 'predictor' | 'exams') => void;
   viewMode: 'discovery' | 'bookmarks' | 'compare' | 'predictor' | 'exams';
+  user: User | null;
+  onLogin: () => void;
 }) => {
-  const user = auth.currentUser;
 
   return (
     <div className="flex flex-col w-full">
@@ -113,13 +117,13 @@ const Navbar = ({
             {!user ? (
               <div className="flex items-center gap-6">
                 <button 
-                  onClick={() => signInWithGoogle()}
+                  onClick={onLogin}
                   className="text-sm font-bold text-slate-900 hover:text-indigo-600 transition-colors"
                 >
                   Login
                 </button>
                 <button 
-                  onClick={() => signInWithGoogle()}
+                  onClick={onLogin}
                   className="px-6 py-2.5 bg-indigo-600 text-white text-sm font-bold rounded-lg shadow-md shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-95"
                 >
                   Get Started
@@ -640,6 +644,7 @@ const CompareView = ({ colleges, onClose, onRemove }: { colleges: College[], onC
 // --- Main App ---
 
 export default function App() {
+  const [user, setUser] = useState<User | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCourses, setSelectedCourses] = useState<string[]>([]);
   const [selectedType, setSelectedType] = useState<string[]>([]);
@@ -651,16 +656,36 @@ export default function App() {
   const [viewMode, setViewMode] = useState<'discovery' | 'bookmarks' | 'compare' | 'predictor' | 'exams'>('discovery');
   const [userRank, setUserRank] = useState<string>('');
   const [selectedExam, setSelectedExam] = useState<string | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  // Sync Auth State
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      setUser(firebaseUser);
+      setIsAuthLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleLogin = async () => {
+    try {
+      setAuthError(null);
+      await signInWithGoogle();
+    } catch (error: any) {
+      setAuthError(error.message || 'Failed to login. Please check your browser settings and try again.');
+      console.error('Login Error:', error);
+    }
+  };
 
   // Sync Bookmarks with Firestore
   useEffect(() => {
-    const user = auth.currentUser;
     if (user) {
       getUserBookmarks(user.uid).then(ids => setBookmarks(ids));
     } else {
       setBookmarks([]);
     }
-  }, [auth.currentUser]);
+  }, [user]);
 
   // Filter Logic
   const filteredColleges = useMemo(() => {
@@ -702,9 +727,8 @@ export default function App() {
   };
 
   const toggleBookmark = async (id: string) => {
-    const user = auth.currentUser;
     if (!user) {
-      await signInWithGoogle();
+      await handleLogin();
       return;
     }
 
@@ -731,6 +755,17 @@ export default function App() {
     setCompareList(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
   };
 
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">Initializing...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#FDFDFD] font-sans text-gray-900 selection:bg-indigo-100 selection:text-indigo-900">
       <Navbar 
@@ -745,7 +780,24 @@ export default function App() {
         setSelectedCourses={setSelectedCourses}
         setViewMode={setViewMode}
         viewMode={viewMode}
+        user={user}
+        onLogin={handleLogin}
       />
+      
+      <AnimatePresence>
+        {authError && (
+          <motion.div 
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="fixed top-24 left-1/2 -translate-x-1/2 z-50 bg-red-50 border border-red-200 text-red-600 px-6 py-3 rounded-xl shadow-xl flex items-center gap-3 font-bold text-sm"
+          >
+            <ShieldCheck className="w-5 h-5 text-red-400" />
+            {authError}
+            <button onClick={() => setAuthError(null)} className="ml-4 hover:text-red-800"><X className="w-4 h-4" /></button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <main className="max-w-7xl mx-auto px-6 py-12">
         {/* Discovery Hero Section */}
